@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Road Safety Intuition Quiz</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7fafc; /* Light gray background */
+        }
+        .risk-card {
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+        }
+        .risk-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
+        }
+        .risk-card.safe {
+            border-bottom: 5px solid #10b981; /* Green */
+        }
+        .risk-card.unsafe {
+            border-bottom: 5px solid #ef4444; /* Red */
+        }
+        /* Custom scrollbar for better aesthetics */
+        .scrollable-content::-webkit-scrollbar {
+            width: 6px;
+        }
+        .scrollable-content::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div id="quiz-container" class="w-full max-w-4xl bg-white rounded-xl shadow-2xl p-6 md:p-10 border border-gray-100">
+
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">🚦 Road Safety Intuition Quiz</h1>
+            <p class="text-gray-500">Which road poses the lower accident risk? Test your knowledge against the prediction model.</p>
+        </header>
+
+        <!-- Scoreboard -->
+        <div class="flex justify-center space-x-8 mb-8 text-center">
+            <div class="p-3 rounded-lg bg-green-50">
+                <p class="text-sm text-green-600 font-semibold">Correct</p>
+                <p id="score-correct" class="text-2xl font-bold text-green-700">0</p>
+            </div>
+            <div class="p-3 rounded-lg bg-red-50">
+                <p class="text-sm text-red-600 font-semibold">Incorrect</p>
+                <p id="score-incorrect" class="text-2xl font-bold text-red-700">0</p>
+            </div>
+        </div>
+
+        <!-- Quiz Question Area -->
+        <div id="quiz-area">
+            <p class="text-center text-xl font-semibold text-gray-700 mb-6" id="quiz-prompt">
+                Which road has the **LOWER** predicted accident risk?
+            </p>
+
+            <div class="flex flex-col md:flex-row gap-6 justify-center">
+
+                <!-- Road 1 Card -->
+                <div id="road1-card" class="risk-card p-4 md:p-6 bg-blue-50 border-2 border-blue-200 rounded-lg flex-1 transition hover:bg-blue-100" onclick="handleChoice(1)">
+                    <h2 class="text-2xl font-bold text-blue-800 mb-4">Road 1</h2>
+                    <div id="road1-features" class="space-y-2 text-sm text-gray-700 scrollable-content max-h-48 overflow-y-auto">
+                        <!-- Features will be inserted here by JS -->
+                    </div>
+                </div>
+
+                <!-- Road 2 Card -->
+                <div id="road2-card" class="risk-card p-4 md:p-6 bg-indigo-50 border-2 border-indigo-200 rounded-lg flex-1 transition hover:bg-indigo-100" onclick="handleChoice(2)">
+                    <h2 class="text-2xl font-bold text-indigo-800 mb-4">Road 2</h2>
+                    <div id="road2-features" class="space-y-2 text-sm text-gray-700 scrollable-content max-h-48 overflow-y-auto">
+                        <!-- Features will be inserted here by JS -->
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Feedback and Next Button -->
+            <div id="feedback-area" class="mt-8 hidden">
+                <div class="p-4 rounded-lg text-center" id="feedback-message"></div>
+                <button id="next-button" class="mt-4 w-full py-3 bg-gray-800 text-white font-semibold rounded-lg hover:bg-gray-700 transition" onclick="loadNewRound()">
+                    Next Challenge
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Logic -->
+    <script>
+        // --- Configuration and State ---
+        let currentRound = {};
+        let score = { correct: 0, incorrect: 0 };
+        const BASE_RISK = 0.3; // Baseline risk level
+
+        // Define possible values for categorical features
+        const FEATURES = {
+            road_type: ['urban', 'rural', 'highway'],
+            num_lanes: [1, 2, 3, 4],
+            speed_limit: [25, 35, 45, 60, 70],
+            lighting: ['daylight', 'dim', 'night'],
+            weather: ['clear', 'rainy', 'foggy'],
+            time_of_day: ['morning', 'afternoon', 'evening'],
+            boolean_features: [
+                'road_signs_present', 'public_road', 'holiday', 'school_season'
+            ]
+        };
+
+        // Simplified Risk Score Adjustments (Simulating Model Weights)
+        // These weights approximate how each feature might influence accident risk
+        const RISK_ADJUSTMENTS = {
+            // Road Type
+            'road_type_urban': 0.15,
+            'road_type_rural': 0.05,
+            'road_type_highway': -0.10,
+
+            // Curvature (High Curvature = Higher Risk)
+            'curvature_high': 0.20, // Curvature > 0.75
+            'curvature_low': -0.10, // Curvature < 0.25
+
+            // Lighting
+            'lighting_night': 0.15,
+            'lighting_dim': 0.08,
+
+            // Weather
+            'weather_rainy': 0.10,
+            'weather_foggy': 0.10,
+
+            // Speed Limit (Higher limits might be riskier, but often on safer roads like highways)
+            'speed_limit_25': 0.05, // Slower speeds often mean more complex areas
+            'speed_limit_70': -0.05, // Often on straight, controlled highways
+
+            // Time of Day (Evening is often peak commute/dark transition)
+            'time_of_day_evening': 0.05,
+
+            // Boolean Features
+            'road_signs_present': -0.02,
+            'public_road': 0.02,
+            'holiday': -0.05,
+            'school_season': 0.07,
+
+            // Reported Accidents (Historical context)
+            'num_reported_accidents_high': 0.15 // 3+ accidents
+        };
+
+        // --- Core Functions ---
+
+        /**
+         * Generates a random value for a feature.
+         */
+        function getRandomValue(arr) {
+            return arr[Math.floor(Math.random() * arr.length)];
+        }
+
+        /**
+         * Generates a single random road scenario.
+         */
+        function generateRandomRoad(id) {
+            const curvature = parseFloat((Math.random()).toFixed(2)); // 0.00 to 1.00
+            const num_reported_accidents = Math.floor(Math.random() * 4); // 0, 1, 2, 3
+
+            let road = {
+                id: id,
+                road_type: getRandomValue(FEATURES.road_type),
+                num_lanes: getRandomValue(FEATURES.num_lanes),
+                curvature: curvature,
+                speed_limit: getRandomValue(FEATURES.speed_limit),
+                lighting: getRandomValue(FEATURES.lighting),
+                weather: getRandomValue(FEATURES.weather),
+                time_of_day: getRandomValue(FEATURES.time_of_day),
+                num_reported_accidents: num_reported_accidents,
+            };
+
+            // Add random boolean features
+            FEATURES.boolean_features.forEach(feature => {
+                road[feature] = Math.random() < 0.5;
+            });
+
+            // Calculate the simulated risk score
+            road.risk = calculateSimplifiedRisk(road);
+            
+            return road;
+        }
+
+        /**
+         * Calculates the simulated accident risk based on defined weights.
+         * @param {object} road - The road features dictionary.
+         * @returns {number} The risk score, clipped between 0 and 1.
+         */
+        function calculateSimplifiedRisk(road) {
+            let risk = BASE_RISK;
+
+            // 1. Categorical Adjustments
+            risk += RISK_ADJUSTMENTS['road_type_' + road.road_type];
+            risk += RISK_ADJUSTMENTS['lighting_' + road.lighting] || 0;
+            risk += RISK_ADJUSTMENTS['weather_' + road.weather] || 0;
+            risk += RISK_ADJUSTMENTS['time_of_day_' + road.time_of_day] || 0;
+            risk += RISK_ADJUSTMENTS['speed_limit_' + road.speed_limit] || 0;
+
+            // 2. Continuous/Threshold Adjustments
+            if (road.curvature > 0.75) {
+                risk += RISK_ADJUSTMENTS.curvature_high;
+            } else if (road.curvature < 0.25) {
+                risk += RISK_ADJUSTMENTS.curvature_low;
+            }
+
+            if (road.num_reported_accidents >= 3) {
+                risk += RISK_ADJUSTMENTS.num_reported_accidents_high;
+            }
+
+            // 3. Boolean Adjustments
+            FEATURES.boolean_features.forEach(feature => {
+                if (road[feature]) {
+                    risk += RISK_ADJUSTMENTS[feature];
+                }
+            });
+
+            // Clip the risk to be between 0 and 1
+            return Math.min(1.0, Math.max(0.0, risk));
+        }
+
+        /**
+         * Renders the features of a road into its corresponding card.
+         */
+        function renderRoad(road) {
+            const cardEl = document.getElementById(`road${road.id}-card`);
+            const featuresEl = document.getElementById(`road${road.id}-features`);
+            
+            // Clear any previous classes/content
+            cardEl.className = cardEl.className.replace(/ (safe|unsafe)/g, '');
+            featuresEl.innerHTML = '';
+            
+            // Helper to format features nicely
+            const formatFeature = (key, value) => {
+                let displayValue = value;
+                let colorClass = 'text-gray-700';
+
+                if (typeof value === 'boolean') {
+                    displayValue = value ? 'YES' : 'NO';
+                    colorClass = value ? 'text-green-700 font-medium' : 'text-red-700 font-medium';
+                } else if (key === 'curvature') {
+                    displayValue = value.toFixed(2);
+                    if (value > 0.75) colorClass = 'text-red-700 font-medium';
+                    else if (value < 0.25) colorClass = 'text-green-700 font-medium';
+                }
+
+                return `
+                    <div class="flex justify-between border-b border-gray-200 pb-1">
+                        <span class="font-semibold capitalize">${key.replace(/_/g, ' ')}:</span>
+                        <span class="${colorClass} text-right">${displayValue}</span>
+                    </div>
+                `;
+            };
+
+            // Build HTML content
+            for (const key in road) {
+                // Skip internal properties for display
+                if (['id', 'risk'].includes(key)) continue; 
+                featuresEl.innerHTML += formatFeature(key, road[key]);
+            }
+        }
+
+        /**
+         * Loads a new round of the quiz.
+         */
+        function loadNewRound() {
+            // Reset UI state
+            document.getElementById('feedback-area').classList.add('hidden');
+            document.getElementById('quiz-area').querySelectorAll('.risk-card').forEach(card => {
+                card.style.pointerEvents = 'auto'; // Re-enable clicks
+                card.className = card.className.replace(/ (safe|unsafe)/g, '');
+            });
+            document.getElementById('quiz-prompt').classList.remove('hidden');
+
+            // Generate two new roads
+            const road1 = generateRandomRoad(1);
+            let road2;
+            
+            // Ensure the two roads are different enough to offer a decision
+            do {
+                road2 = generateRandomRoad(2);
+            } while (Math.abs(road1.risk - road2.risk) < 0.1); 
+
+            currentRound.road1 = road1;
+            currentRound.road2 = road2;
+
+            // Determine the correct answer
+            currentRound.correctChoice = road1.risk < road2.risk ? 1 : 2;
+
+            renderRoad(road1);
+            renderRoad(road2);
+        }
+
+        /**
+         * Handles the user's choice.
+         * @param {number} choice - The road number (1 or 2) the user picked.
+         */
+        function handleChoice(choice) {
+            // Disable further clicks
+            document.getElementById('quiz-area').querySelectorAll('.risk-card').forEach(card => {
+                card.style.pointerEvents = 'none';
+            });
+            
+            const isCorrect = choice === currentRound.correctChoice;
+            const messageEl = document.getElementById('feedback-message');
+            const feedbackAreaEl = document.getElementById('feedback-area');
+            const road1Card = document.getElementById('road1-card');
+            const road2Card = document.getElementById('road2-card');
+
+            // Update scores
+            if (isCorrect) {
+                score.correct++;
+                messageEl.className = 'p-4 rounded-lg bg-green-100 border border-green-300 text-green-800';
+                messageEl.innerHTML = '<span class="text-2xl font-bold">Correct! ✅</span><br>Your intuition matches the model.';
+            } else {
+                score.incorrect++;
+                messageEl.className = 'p-4 rounded-lg bg-red-100 border border-red-300 text-red-800';
+                messageEl.innerHTML = '<span class="text-2xl font-bold">Incorrect! ❌</span><br>The model predicted the other road was safer.';
+            }
+
+            // Display risks and highlight cards
+            const correctRoad = currentRound[`road${currentRound.correctChoice}`];
+            const incorrectRoad = currentRound[`road${3 - currentRound.correctChoice}`]; // The other road
+
+            const getRiskText = (risk) => {
+                const percentage = (risk * 100).toFixed(1);
+                return `<span class="text-lg font-bold">Predicted Risk: ${percentage}%</span>`;
+            };
+
+            const road1El = document.getElementById('road1-card');
+            const road2El = document.getElementById('road2-card');
+            
+            // Show risks
+            road1El.querySelector('h2').innerHTML += `<br>${getRiskText(currentRound.road1.risk)}`;
+            road2El.querySelector('h2').innerHTML += `<br>${getRiskText(currentRound.road2.risk)}`;
+            
+            // Highlight correct/incorrect answer
+            road1El.classList.add(currentRound.road1.risk === correctRoad.risk ? 'safe' : 'unsafe');
+            road2El.classList.add(currentRound.road2.risk === correctRoad.risk ? 'safe' : 'unsafe');
+
+            // Update scoreboard
+            document.getElementById('score-correct').textContent = score.correct;
+            document.getElementById('score-incorrect').textContent = score.incorrect;
+
+            // Show feedback
+            feedbackAreaEl.classList.remove('hidden');
+            document.getElementById('quiz-prompt').classList.add('hidden');
+        }
+
+        // --- Initialization ---
+        window.onload = loadNewRound;
+
+    </script>
+</body>
+</html>
+
